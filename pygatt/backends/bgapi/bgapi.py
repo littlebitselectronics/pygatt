@@ -175,7 +175,44 @@ class BGAPIBackend(BLEBackend):
             raise NotConnectedError("Unable to reconnect with USB "
                                     "device after rebooting")
 
-    def start(self):
+    def _initialize_device(self, reset=True):
+        """ Prepare an opened BGAPI device for use """
+        self._receiver = threading.Thread(target=self._receive)
+        self._receiver.daemon = True
+
+        self._running = threading.Event()
+        self._running.set()
+        self._receiver.start()
+
+        # Stop any ongoing procedure
+        log.debug("Stopping any outstanding GAP procedure")
+        self.send_command(CommandBuilder.gap_end_procedure())
+        try:
+            self.expect(ResponsePacketType.gap_end_procedure)
+        except BGAPIError:
+            # Ignore any errors if there was no GAP procedure running
+            pass
+
+        self.disable_advertising(skip_reply=not reset)
+        self.set_bondable(False)
+        # Check to see if there are any existing connections and add them
+        # Request the number of currently connected modules from the adapter
+        self.send_command(CommandBuilder.system_get_connections())
+        _, connections = self.expect(ResponsePacketType.system_get_connections)
+        # Adapter should also generate one EventPacketType.connection_status
+        # for each supported connection
+        for _ in range(connections['maxconn']):
+            _, conn = self.expect(EventPacketType.connection_status)
+            # If any connection flags are set, this is an active connection
+            if conn['flags'] > 0:
+                # Create new ble object to insert into the adapter
+                ble = BGAPIBLEDevice(bgapi_address_to_hex(conn['address']),
+                                     conn['connection_handle'],
+                                     self)
+                # pylint: disable=protected-access
+                self._connections[conn['connection_handle']] = ble
+
+    def start(self, reset=True, tries=5):
         """
         Connect to the USB adapter, reset it's state and start a backgroud
         receiver thread.
@@ -187,38 +224,55 @@ class BGAPIBackend(BLEBackend):
         # to be plugged in.
         self._open_serial_port(max_connection_attempts=1)
 
-        log.info("Resetting and reconnecting to device for a clean environment")
-        # Blow everything away and start anew.
-        # Only way to be sure is to burn it down and start again.
-        # (Aka reset remote state machine)
-        # Note: Could make this a conditional based on parameter if this
-        # happens to be too slow on some systems.
+        if reset:
+            log.debug("Resetting and reconnecting to device for a clean environment")
+            # Blow everything away and start anew.
+            # Only way to be sure is to burn it down and start again.
+            # (Aka reset remote state machine)
+            # Note: Could make this a conditional based on parameter if this
+            # happens to be too slow on some systems.
 
-        # The zero param just means we want to do a normal restart instead of
-        # starting a firmware update restart.
-        self.send_command(CommandBuilder.system_reset(0))
-        self._ser.flush()
-        self._ser.close()
+            # The zero param just means we want to do a normal restart instead of
+            # starting a firmware update restart.
+            self.send_command(CommandBuilder.system_reset(0))
+            self._ser.flush()
+            self._ser.close()
 
-        self._open_serial_port()
-        self._receiver = threading.Thread(target=self._receive)
-        self._receiver.daemon = True
+            # Re-open the port. On Windows, it has been observed that the
+            # port is no immediately available - so retry for up to 2 seconds.
+            start = time.clock()
+            retry_t = 0.2
+            while True:
+                try:
+                    self._open_serial_port()
+                except:
+                    if time.clock() - start > 2:
+                        raise
+                    else:
+                        log.debug('Port not ready, retry in %.2f seconds...' % retry_t)
+                        time.sleep(retry_t)
+                else:
+                    break
 
-        self._running = threading.Event()
-        self._running.set()
-        self._receiver.start()
+        if tries is None or not tries:
+            # Try at least once to open the port
+            tries = 1
+        # Sometimes when opening the port without a reset, it'll fail to respond
+        # So let's try to repeat the initialization process a few times
+        while tries:
+            tries -= 1
+            try:
+                self._initialize_device(reset)
+                return
+            except ExpectedResponseTimeout:
+                if tries:
+                    log.info("BLED unresponsive, re-opening")
+                    self.stop()
+                    self._open_serial_port(max_connection_attempts=1)
+                    continue
+        # If we got here, we failed to open the port
+        raise NotConnectedError()
 
-        self.disable_advertising()
-        self.set_bondable(False)
-
-        # Stop any ongoing procedure
-        log.debug("Stopping any outstanding GAP procedure")
-        self.send_command(CommandBuilder.gap_end_procedure())
-        try:
-            self.expect(ResponsePacketType.gap_end_procedure)
-        except BGAPIError:
-            # Ignore any errors if there was no GAP procedure running
-            pass
 
     def stop(self):
         for device in self._connections.values():
@@ -245,13 +299,14 @@ class BGAPIBackend(BLEBackend):
                 constants.bondable['yes' if bondable else 'no']))
         self.expect(ResponsePacketType.sm_set_bondable_mode)
 
-    def disable_advertising(self):
+    def disable_advertising(self, skip_reply=False):
         log.debug("Disabling advertising")
         self.send_command(
             CommandBuilder.gap_set_mode(
                 constants.gap_discoverable_mode['non_discoverable'],
                 constants.gap_connectable_mode['non_connectable']))
-        self.expect(ResponsePacketType.gap_set_mode)
+        if not skip_reply:
+            self.expect(ResponsePacketType.gap_set_mode)
 
     def send_command(self, *args, **kwargs):
         with self._lock:
