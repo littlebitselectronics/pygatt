@@ -48,7 +48,7 @@ class BGAPIBLEDevice(BLEDevice):
              EventPacketType.sm_bonding_fail])
         if packet_type == EventPacketType.sm_bonding_fail:
             raise BGAPIError("Bonding failed")
-        log.info("Bonded to %s", self._address)
+        log.debug("Bonded to %s", self._address)
 
     @connection_required
     def get_rssi(self):

@@ -159,7 +159,7 @@ class BLEDevice(object):
                     properties,
                     wait_for_response=False
                 )
-                log.info("Subscribed to uuid=%s", uuid)
+                log.debug("Subscribed to uuid=%s", uuid)
                 self._subscribed_handlers[value_handle] = properties
             else:
                 log.debug("Already subscribed to uuid=%s", uuid)
@@ -184,7 +184,7 @@ class BLEDevice(object):
                     properties,
                     wait_for_response=False
                 )
-                log.info("Unsubscribed from uuid=%s", uuid)
+                log.debug("Unsubscribed from uuid=%s", uuid)
             else:
                 log.debug("Already unsubscribed from uuid=%s", uuid)
 
@@ -218,7 +218,7 @@ class BLEDevice(object):
         to all registered callbacks.
         """
 
-        log.info('Received notification on handle=0x%x, value=0x%s',
+        log.debug('Received notification on handle=0x%x, value=0x%s',
                  handle, hexlify(value))
         with self._lock:
             if handle in self._callbacks:

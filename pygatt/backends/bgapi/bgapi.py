@@ -121,10 +121,10 @@ class BGAPIBackend(BLEBackend):
             EventPacketType.sm_bond_status: self._ble_evt_sm_bond_status,
         }
 
-        log.info("Initialized new BGAPI backend")
+        log.debug("Initialized new BGAPI backend")
 
     def _detect_device_port(self):
-        log.info("Auto-detecting serial port for BLED112")
+        log.debug("Auto-detecting serial port for BLED112")
         detected_devices = find_usb_serial_devices(
             vendor_id=BLED112_VENDOR_ID,
             product_id=BLED112_PRODUCT_ID)
@@ -228,7 +228,7 @@ class BGAPIBackend(BLEBackend):
                 pass
         if self._running:
             if self._running.is_set():
-                log.info('Stopping')
+                log.debug('Stopping')
             self._running.clear()
 
         if self._receiver:
@@ -246,7 +246,7 @@ class BGAPIBackend(BLEBackend):
         self.expect(ResponsePacketType.sm_set_bondable_mode)
 
     def disable_advertising(self):
-        log.info("Disabling advertising")
+        log.debug("Disabling advertising")
         self.send_command(
             CommandBuilder.gap_set_mode(
                 constants.gap_discoverable_mode['non_discoverable'],
@@ -271,7 +271,7 @@ class BGAPIBackend(BLEBackend):
               device.
         """
         # Find bonds
-        log.info("Fetching existing bonds for devices")
+        log.debug("Fetching existing bonds for devices")
         self._stored_bonds = []
         self.send_command(CommandBuilder.sm_get_bonds())
 
@@ -287,7 +287,7 @@ class BGAPIBackend(BLEBackend):
             self.expect(EventPacketType.sm_bond_status)
 
         for b in reversed(self._stored_bonds):
-            log.info("Deleting bond %s", b)
+            log.debug("Deleting bond %s", b)
 
             self.send_command(CommandBuilder.sm_delete_bonding(b))
             self.expect(ResponsePacketType.sm_delete_bonding)
@@ -315,15 +315,15 @@ class BGAPIBackend(BLEBackend):
 
         self.expect(ResponsePacketType.gap_set_scan_parameters)
 
-        log.info("Starting an %s scan", "active" if active else "passive")
+        log.debug("Starting an %s scan", "active" if active else "passive")
         self.send_command(CommandBuilder.gap_discover(discover_mode))
 
         self.expect(ResponsePacketType.gap_discover)
 
-        log.info("Pausing for %ds to allow scan to complete", timeout)
+        log.debug("Pausing for %ds to allow scan to complete", timeout)
         time.sleep(timeout)
 
-        log.info("Stopping scan")
+        log.debug("Stopping scan")
         self.send_command(CommandBuilder.gap_end_procedure())
         self.expect(ResponsePacketType.gap_end_procedure)
 
@@ -335,7 +335,7 @@ class BGAPIBackend(BLEBackend):
                 'rssi': info.rssi,
                 'packet_data': info.packet_data
             })
-        log.info("Discovered %d devices: %s", len(devices), devices)
+        log.debug("Discovered %d devices: %s", len(devices), devices)
         self._devices_discovered = {}
         return devices
 
@@ -365,7 +365,7 @@ class BGAPIBackend(BLEBackend):
             if device._address == bgapi_address_to_hex(address_bytes):
                 return device
 
-        log.info("Connecting to device at address %s (timeout %ds)",
+        log.debug("Connecting to device at address %s (timeout %ds)",
                  address, timeout)
         self.set_bondable(False)
 
@@ -418,7 +418,7 @@ class BGAPIBackend(BLEBackend):
     def discover_characteristics(self, connection_handle):
         att_handle_start = 0x0001  # first valid handle
         att_handle_end = 0xFFFF  # last valid handle
-        log.info("Fetching characteristics for connection %d",
+        log.debug("Fetching characteristics for connection %d",
                  connection_handle)
         self.send_command(
             CommandBuilder.attclient_find_information(
@@ -430,11 +430,11 @@ class BGAPIBackend(BLEBackend):
 
         for char_uuid_str, char_obj in (
                 self._characteristics[connection_handle].items()):
-            log.info("Characteristic 0x%s is handle 0x%x",
+            log.debug("Characteristic 0x%s is handle 0x%x",
                      char_uuid_str, char_obj.handle)
             for desc_uuid_str, desc_handle in (
                     char_obj.descriptors.items()):
-                log.info("Characteristic descriptor 0x%s is handle 0x%x",
+                log.debug("Characteristic descriptor 0x%s is handle 0x%x",
                          desc_uuid_str, desc_handle)
         return self._characteristics[connection_handle]
 
@@ -589,7 +589,7 @@ class BGAPIBackend(BLEBackend):
         Read bytes from serial and enqueue the packets if the packet is not a.
         Stops if the self._running event is not set.
         """
-        log.info("Running receiver")
+        log.debug("Running receiver")
         while self._running.is_set():
             packet = self._lib.parse_byte(self._ser.read())
             if packet is not None:
@@ -599,7 +599,7 @@ class BGAPIBackend(BLEBackend):
                     device.receive_notification(args['atthandle'],
                                                 bytearray(args['value']))
                 self._receiver_queue.put(packet)
-        log.info("Stopping receiver")
+        log.debug("Stopping receiver")
 
     def _ble_evt_attclient_attribute_value(self, args):
         """
@@ -648,11 +648,11 @@ class BGAPIBackend(BLEBackend):
                 uuid_type == UUIDType.nonstandard or
                 uuid_type == UUIDType.characteristic):
             if uuid_type == UUIDType.custom:
-                log.info("Found custom characteristic %s" % uuid)
+                log.debug("Found custom characteristic %s" % uuid)
             elif uuid_type == UUIDType.characteristic:
-                log.info("Found approved characteristic %s" % uuid)
+                log.debug("Found approved characteristic %s" % uuid)
             elif uuid_type == UUIDType.nonstandard:
-                log.info("Found nonstandard 4-byte characteristic %s" % uuid)
+                log.debug("Found nonstandard 4-byte characteristic %s" % uuid)
             new_char = Characteristic(uuid, args['chrhandle'])
             self._current_characteristic = new_char
             self._characteristics[
@@ -681,7 +681,7 @@ class BGAPIBackend(BLEBackend):
             # Disconnected
             self._connections.pop(connection_handle, None)
 
-        log.info("Connection status: handle=0x%x, flags=%s, address=0x%s, "
+        log.debug("Connection status: handle=0x%x, flags=%s, address=0x%s, "
                  "connection interval=%fms, timeout=%d, "
                  "latency=%d intervals, bonding=0x%x",
                  connection_handle,
