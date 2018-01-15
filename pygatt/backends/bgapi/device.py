@@ -4,7 +4,7 @@ import time
 from pygatt import BLEDevice, exceptions
 from . import constants
 from .bgapi import BGAPIError
-from .error_codes import ErrorCode
+from .error_codes import ErrorCode, get_return_message
 from .packets import BGAPICommandPacketBuilder as CommandBuilder
 from .bglib import EventPacketType, ResponsePacketType
 
@@ -123,6 +123,9 @@ class BGAPIBLEDevice(BLEDevice):
             if (response['result'] !=
                     ErrorCode.insufficient_authentication.value):
                 # Continue to retry until we are bonded
+                if response['result']:
+                    raise RuntimeError("Error on write 0x%04x: %s" % (
+                        response['result'], get_return_message(response['result'])))
                 break
 
     @connection_required

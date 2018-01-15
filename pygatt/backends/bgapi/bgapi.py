@@ -593,8 +593,12 @@ class BGAPIBackend(BLEBackend):
         while self._running.is_set():
             packet = self._lib.parse_byte(self._ser.read())
             if packet is not None:
-                packet_type, args = self._lib.decode_packet(packet)
-                if packet_type == EventPacketType.attclient_attribute_value:
+                decoded = self._lib.decode_packet(packet)
+                if decoded is None:
+                    continue
+                packet_type, args = decoded
+                if packet_type == EventPacketType.attclient_attribute_value and\
+                   args['connection_handle'] in self._connections:
                     device = self._connections[args['connection_handle']]
                     device.receive_notification(args['atthandle'],
                                                 bytearray(args['value']))
