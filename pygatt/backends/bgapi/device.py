@@ -71,34 +71,42 @@ class BGAPIBLEDevice(BLEDevice):
         raise BGAPIError("get rssi failed")
 
     @connection_required
-    def char_read(self, uuid, timeout=None):
-        return self.char_read_handle(self.get_handle(uuid), timeout=timeout)
+    def char_read(self, uuid, timeout=None, long=False):
+        return self.char_read_handle(self.get_handle(uuid),
+                timeout=timeout, long=long)
 
     @connection_required
-    def char_read_handle(self, handle, timeout=None):
-        log.info("Reading characteristic at handle %d", handle)
-        self._backend.send_command(
-            CommandBuilder.attclient_read_by_handle(
-                self._handle, handle))
+    def char_read_handle(self, handle, timeout=None, long=False):
+        log.debug("Reading characteristic at handle %d", handle)
+        if long:
+            self._backend.send_command(
+                CommandBuilder.attclient_read_long(
+                    self._handle, handle))
+            self._backend.expect(ResponsePacketType.attclient_read_long)
+        else:
+            self._backend.send_command(
+                CommandBuilder.attclient_read_by_handle(
+                    self._handle, handle))
+            self._backend.expect(ResponsePacketType.attclient_read_by_handle)
 
-        self._backend.expect(ResponsePacketType.attclient_read_by_handle)
         success = False
+        ret = bytearray([])
         while not success:
             matched_packet_type, response = self._backend.expect_any(
                 [EventPacketType.attclient_attribute_value,
                  EventPacketType.attclient_procedure_completed],
                 timeout=timeout)
-            # TODO why not just expect *only* the attribute value response,
-            # then it would time out and raise an exception if allwe got was
-            # the 'procedure completed' response?
-            if matched_packet_type != EventPacketType.attclient_attribute_value:
-                raise BGAPIError("Unable to read characteristic")
-            if response['atthandle'] == handle:
-                # Otherwise we received a response from a wrong handle (e.g.
-                # from a notification) so we keep trying to wait for the
-                # correct one
+            # If this is a long read, there may be multiple "attribute_value" packets
+            # so we should append any values emitted by "attribute_value" to ret
+            if matched_packet_type == EventPacketType.attclient_attribute_value and\
+                        response['atthandle'] == handle:
+                if not long:
+                    return bytearray(response['value'])
+                ret.extend(bytearray(response['value']))
+            # Then once the whole procedure is complete we can return it
+            elif matched_packet_type == EventPacketType.attclient_procedure_completed:
                 success = True
-        return bytearray(response['value'])
+        return ret
 
     @connection_required
     def char_write_handle(self, char_handle, value, wait_for_response=False):
