@@ -35,6 +35,7 @@ class BGAPIBLEDevice(BLEDevice):
         Ensure it's marked as such, and inform the application if requested
         """
         self._handle = None
+        log.debug("Device %s disconnected", self._address)
         if self.disconnected_cb is not None and \
                 hasattr(self.disconnected_cb, '__call__'):
             self.disconnected_cb(self)

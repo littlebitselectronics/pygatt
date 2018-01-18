@@ -628,13 +628,10 @@ class BGAPIBackend(BLEBackend):
             if packet is None:
                 raise ExpectedResponseTimeout(expected_packet_choices, timeout)
 
-            packet_type, response = self._lib.decode_packet(packet)
+            packet_type, response = packet
             return_code = response.get('result', 0)
             log.debug("Received a %s packet: %s",
                       packet_type, get_return_message(return_code))
-
-            if packet_type in self._packet_handlers:
-                self._packet_handlers[packet_type](response)
 
             if packet_type in expected_packet_choices:
                 return packet_type, response
@@ -657,7 +654,14 @@ class BGAPIBackend(BLEBackend):
                     device = self._connections[args['connection_handle']]
                     device.receive_notification(args['atthandle'],
                                                 bytearray(args['value']))
-                self._receiver_queue.put(packet)
+                decoded = self._lib.decode_packet(packet)
+                if decoded is None:
+                    continue
+                self._receiver_queue.put(decoded)
+                packet_type, response = decoded
+                if packet_type in self._packet_handlers:
+                    self._packet_handlers[packet_type](response)
+
         log.debug("Stopping receiver")
 
     def _ble_evt_attclient_attribute_value(self, args):
