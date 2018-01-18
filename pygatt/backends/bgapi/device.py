@@ -1,5 +1,6 @@
 import logging
 import time
+from threading import Thread
 
 from pygatt import BLEDevice, exceptions
 from . import constants
@@ -38,7 +39,11 @@ class BGAPIBLEDevice(BLEDevice):
         log.debug("Device %s disconnected", self._address)
         if self.disconnected_cb is not None and \
                 hasattr(self.disconnected_cb, '__call__'):
-            self.disconnected_cb(self)
+            # We're likely being called from the receiver thread context.
+            # This is not a safe context for any application code:
+            # Any functions that block on a response would deadlock here.
+            # So execute this callback from a new thread.
+            Thread(target=self.disconnected_cb, args=(self,)).start()
 
     @connection_required
     def bond(self, permanent=False):
