@@ -27,6 +27,17 @@ class BGAPIBLEDevice(BLEDevice):
         super(BGAPIBLEDevice, self).__init__(address)
         self._handle = handle
         self._backend = backend
+        self.disconnected_cb = None
+
+    def _disconnected(self):
+        """
+        Callback from adapter: This device has just been disconnected.
+        Ensure it's marked as such, and inform the application if requested
+        """
+        self._handle = None
+        if self.disconnected_cb is not None and \
+                hasattr(self.disconnected_cb, '__call__'):
+            self.disconnected_cb(self)
 
     @connection_required
     def bond(self, permanent=False):

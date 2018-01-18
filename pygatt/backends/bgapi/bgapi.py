@@ -721,6 +721,9 @@ class BGAPIBackend(BLEBackend):
         """
         Handles the event for the termination of a connection.
         """
+        if args['connection_handle'] in self._connections:
+            dev = self._connections[args['connection_handle']]
+            dev._disconnected()
         self._connections.pop(args['connection_handle'], None)
 
     def _ble_evt_connection_status(self, args):
